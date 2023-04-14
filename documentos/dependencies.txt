@@ -1,0 +1,7 @@
+tensorflow
+keras
+numpy
+numba
+cv2
+cupy
+cuda
