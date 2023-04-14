@@ -26,7 +26,6 @@ def train_one_video(Xtr, ytr, model, options: model_def.training_options):
     model.fit(Xtr, ytr, epochs=options.epoch, 
                 callbacks=[callback], batch_size=options.batch_size, validation_split=0.1)     #, validation_data=val_generator)
 
-
 # Entrena al modelo con una colección completa de vídeos
 def train_model(vid_path, input_path, test_vid_path, test_log_path, crear_modelo, options: model_def.training_options):
 

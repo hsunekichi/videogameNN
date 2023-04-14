@@ -43,6 +43,23 @@ def focal_loss(gamma=2.0, alpha=0.25):
 
 
 
+class ChangeBinaryCrossentropy(keras.losses.BinaryCrossentropy):
+    def __init__(self, change_factor=1, prev_output=None, **kwargs):
+        super(ChangeBinaryCrossentropy, self).__init__(**kwargs)
+        self.prev_output = prev_output
+        self.change_factor = change_factor
+        
+    def call(self, y_true, y_pred):
+
+        loss_value = super(ChangeBinaryCrossentropy, self).call(y_true, y_pred)
+
+        if self.prev_output != y_true:
+            loss_value *= self.change_factor
+
+        return loss_value
+
+
+
 # Percentaje of completely well predicted outputs
 def tasa_acierto(X, Y, model):
     predY = predict(model, X)

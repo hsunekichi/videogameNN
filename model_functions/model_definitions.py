@@ -36,17 +36,26 @@ class CoordinateExpansion(keras.layers.Layer):
     def build(self, input_shape):
         self.height = input_shape[1]
         self.width = input_shape[2]
-        self.full_size = max(self.height, self.width)
         
     def call(self, inputs):
         batch_size = tf.shape(inputs)[0]
-        i_coords = tf.linspace(0.0, tf.cast(self.height - 1, tf.float32), self.height)
-        j_coords = tf.linspace(0.0, tf.cast(self.width - 1, tf.float32), self.width)
-        i_coords = tf.reshape(i_coords / self.full_size, (1, self.height, 1, 1))
-        j_coords = tf.reshape(j_coords / self.full_size, (1, 1, self.width, 1))
+
+        # Creates coordinates
+        i_coords = tf.linspace(start= 0.0, stop= 1, num= self.height)
+        j_coords = tf.linspace(start= 0.0, stop= 1, num= self.width)
+        
+        # Reshapes coordinates 
+        i_coords = tf.reshape(i_coords, (1, self.height, 1, 1))
+        j_coords = tf.reshape(j_coords, (1, 1, self.width, 1))
+
+        # Copies each coordinate dimension over the other one
+        # (Gets the complete coordinate matrixes)
         i_coords = tf.tile(i_coords, (batch_size, 1, self.width, 1))
         j_coords = tf.tile(j_coords, (batch_size, self.height, 1, 1))
-        expanded_inputs = tf.concat([inputs, i_coords, j_coords], axis=-1)
+
+        # Adds the coordinates to the image
+        # Either to the new dimension or to the channels
+        expanded_inputs = tf.concat([inputs, i_coords, j_coords], axis=3)
 
         return expanded_inputs
     
@@ -83,6 +92,29 @@ class FlattenChannels(keras.layers.Layer):
     def get_config(self):
         config = super(FlattenChannels, self).get_config()
         return config
+    
+
+
+class MatrixToImageLayer(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super(MatrixToImageLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        super(MatrixToImageLayer, self).build(input_shape)
+
+    def call(self, inputs):
+        # Get the dimensions of the input tensor
+        batch_size, height, width = tf.shape(inputs)[0], tf.shape(inputs)[1], tf.shape(inputs)[2]
+        channels = tf.shape(inputs)[3]
+
+        # Reshape the input tensor to convert it into a 2D image
+        # The new shape will be (batch_size, height, width, channels)
+        outputs = tf.reshape(inputs, (batch_size, height, width, channels))
+
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0], input_shape[1], input_shape[2], input_shape[3]
     
 
 
@@ -195,26 +227,38 @@ def create_model_buffered_XXS(shape, nOutputs):
 
     compression_layer = keras.models.Sequential([  
 
-        CoordinateExpansion(),  # Adds two coordinate channels (i, j)
+        #CoordinateExpansion(),  # Adds two coordinate channels (i, j)
 
         # Reshape the input tensor to separate each channel into its own spatial dimension
-        # The new shape will be (batch_size, height, width, channels, 1)
-        keras.layers.Reshape((input.shape[1], input.shape[2], 3, 1)),
+        # The new shape will be (batch_size, height, width, img+coords, 1)
+        #keras.layers.Reshape((input.shape[1], input.shape[2], 3, 1)),
 
         #   Convolutional layers
-        keras.layers.Conv3D(32, (3, 3, 1), activation='relu'),
-        keras.layers.MaxPool3D((3, 3, 1)),
+        keras.layers.Conv2D(8, (3, 3), activation='relu'),
+        keras.layers.Conv2D(8, (3, 3), activation='relu'),
+        keras.layers.MaxPool2D((3, 3)),
 
-        keras.layers.Conv3D(16, (3, 3, 1), activation='relu'),
-        keras.layers.AvgPool3D((3, 3, 1)),
+        keras.layers.Conv2D(16, (2, 2), activation='relu'),
+        keras.layers.AvgPool2D((2, 2)),
 
-        FlattenChannels(),      # Flattens each channel independantly
+        keras.layers.Conv2D(16, (2, 2), activation='relu'),
+        keras.layers.AvgPool2D((2, 2)),
+
+        keras.layers.Conv2D(32, (2, 2), activation='relu'),
+
+        # Fuses 3 channels in one
+        #MatrixToImageLayer(),
+        #keras.layers.Conv2D(1, (1, 1), activation='relu')
+
+        keras.layers.Flatten()
     ],
     name="Compression")
 
-    memory_buffer_layer = ImageBuffer(buffer_size=conf.n_timesteps, name="Memory_buffer")
+    #print(compression_layer(input).layer[-1].output_shape)
     
     lst_memory_layer = keras.models.Sequential([
+
+        ImageBuffer(buffer_size=conf.n_timesteps, name="Memory_buffer"),
         keras.layers.LSTM(16, activation='tanh'),
         
         #keras.layers.Dropout(0.1),
@@ -234,21 +278,7 @@ def create_model_buffered_XXS(shape, nOutputs):
     ############## Model ##############
 
     internal_compressed_input = compression_layer(input)
-    
-    #Creates the window buffer
-    #internal_compressed_buffer = np.empty((conf.n_timesteps,        # Buffer to store the last n_timesteps data
-    #                    np.shape(internal_compressed_input)[1]))       # for the LSTM layer
-    
-    # Add the timestep to the window
-    #internal_compressed_buffer = np.append(internal_compressed_buffer, internal_compressed_input, axis=0)
-
-    # if the window is full, removes the first timestep
-    #if len(internal_compressed_buffer) > conf.n_timesteps:
-    #    internal_compressed_buffer = np.delete(internal_compressed_buffer, 0, axis=0)
-
-    memory_buffer_data = memory_buffer_layer(internal_compressed_input)
-    print(memory_buffer_data)
-    internal_lst_memory = lst_memory_layer(memory_buffer_data)
+    internal_lst_memory = lst_memory_layer(internal_compressed_input)
     output = output_layer(internal_lst_memory)
 
     model = keras.Model(input, output)
@@ -256,7 +286,7 @@ def create_model_buffered_XXS(shape, nOutputs):
     print(model.summary())
 
     model.compile(optimizer='nadam',
-                #loss= model_exec.focal_loss(),
+                #loss= model_exec.ChangeBinaryCrossentropy(),
                 #metrics=[model_exec.focal_loss()]
                 loss="binary_crossentropy",
                 metrics=["binary_crossentropy", tf.keras.metrics.Recall(thresholds=conf.threshold_output)])
