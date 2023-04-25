@@ -51,10 +51,10 @@ class XboxController(object):
         b_btn = self.B
         rt = self.RightTrigger
         
-        return [left_stick_x, left_stick_y, 
-                    x_btn, a_btn, b_btn, rt]
+        #return [left_stick_x, left_stick_y, 
+        #            x_btn, a_btn, b_btn, rt]
     
-        #return [left_stick_x, left_stick_y, a_btn]
+        return [a_btn]
 
 
     def _monitor_controller(self):

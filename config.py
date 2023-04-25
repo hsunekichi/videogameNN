@@ -17,17 +17,17 @@ screen_height = 660
 screen_width = 1136
 record_fps = 30
 
-n_timesteps = 10
+n_timesteps = 5
 n_channels = 1
-n_outputs = 8
-n_bidirectional_axis = 2
+n_outputs = 1
+n_bidirectional_axis = 0
 
 ## ------- PCA ------- ##
 downscale_batch_size = 2000
 PCA_image_side = 100
 
 
-scale = 4
+scale = 3
 
 pixel_type = np.float16
 block_dim = (dimmSize, dimmSize)

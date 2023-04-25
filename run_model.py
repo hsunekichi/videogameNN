@@ -15,17 +15,17 @@ import time
 autogui.PAUSE = 0
 autogui.MINIMUM_SLEEP = 0.0
 
-hola1
+
 # Define the keys and their corresponding indices in the list
 key_mapping = {
-    'left': 0,
-    'right': 1,
-    'down': 2,
-    'up': 3,
-    'x': 4,
-    'z': 5,
-    'a': 6,
-    'c': 7
+    #'left': 0,
+    #'right': 1,
+    #'down': 2,
+    #'up': 3,
+    #'x': 4,
+    'z': 0,
+    #'a': 6,
+    #'c': 7
 }
 
 def send_input(key_states):
@@ -40,8 +40,13 @@ def send_input(key_states):
 name = sys.argv[1]
 id = sys.argv[2]
 
+if (len(sys.argv) < 4):
+    execute_inputs = True
+else:
+    execute_inputs = (sys.argv[3] == "1")
+
 model = keras.models.load_model("trained_models/modelos_"+name+"/modelo_"+id+".h5",
-                                custom_objects={'loss': model_exec.focal_loss(),
+                                custom_objects={'loss': model_exec.ChangeBinaryCrossentropy(),
                                                 'ImageBuffer': models.ImageBuffer})
 #pca = pk.load(open("trained_models/modelos_"+name+"/pca.pkl",'rb'))
 pca = None
@@ -81,7 +86,9 @@ while True:
     
     # Execute the prediction
     print(prediction)
-    send_input(prediction)
+
+    if (execute_inputs):
+        send_input(prediction)
 
     # Exit the loop when the 'q' key is pressed
     #if autogui.is_pressed('q'):

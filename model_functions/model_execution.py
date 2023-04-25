@@ -42,22 +42,33 @@ def focal_loss(gamma=2.0, alpha=0.25):
     return loss
 
 
+def ChangeBinaryCrossentropy(n=2):
+    """
+    Custom binary cross entropy loss function that multiplies the loss by a factor 'n'
+    if the real output is different from the previous one.
+    
+    Args:
+    n (float): Multiplication factor for the loss if the real output is different from the previous one.
 
-class ChangeBinaryCrossentropy(keras.losses.BinaryCrossentropy):
-    def __init__(self, change_factor=1, prev_output=None, **kwargs):
-        super(ChangeBinaryCrossentropy, self).__init__(**kwargs)
-        self.prev_output = prev_output
-        self.change_factor = change_factor
-        
-    def call(self, y_true, y_pred):
+    Returns:
+    loss (function): Custom loss function.
+    """
+    def loss(y_true, y_pred):
+        # Get the previous output from the previous batch
+        prev_output = keras.backend.concatenate([keras.backend.zeros_like(y_true[0:1]), y_true[:-1]], axis=0)
 
-        loss_value = super(ChangeBinaryCrossentropy, self).call(y_true, y_pred)
+        # Compute the binary cross entropy loss
+        binary_crossentropy = keras.backend.binary_crossentropy(y_true, y_pred)
 
-        if self.prev_output != y_true:
-            loss_value *= self.change_factor
+        # Compute the difference between the current output and the previous output
+        output_difference = keras.backend.abs(y_true - prev_output)
 
-        return loss_value
+        # Multiply the binary cross entropy loss by 'n' if the outputs are different
+        weighted_binary_crossentropy = keras.backend.switch(keras.backend.not_equal(output_difference, 0), n * binary_crossentropy, binary_crossentropy)
 
+        return keras.backend.mean(weighted_binary_crossentropy)
+
+    return loss
 
 
 # Percentaje of completely well predicted outputs

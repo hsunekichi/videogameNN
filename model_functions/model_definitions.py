@@ -225,6 +225,9 @@ def create_model_buffered_XXS(shape, nOutputs):
     ############## Model layers ##############
     input = keras.layers.Input(shape=shape)     #, dtype='float16')
 
+
+    ###################### Compression layer ######################
+
     compression_layer = keras.models.Sequential([  
 
         #CoordinateExpansion(),  # Adds two coordinate channels (i, j)
@@ -235,27 +238,49 @@ def create_model_buffered_XXS(shape, nOutputs):
 
         #   Convolutional layers
         keras.layers.Conv2D(8, (3, 3), activation='relu'),
+        keras.layers.MaxPool2D((3, 3)),
+
         keras.layers.Conv2D(8, (3, 3), activation='relu'),
         keras.layers.MaxPool2D((3, 3)),
 
         keras.layers.Conv2D(16, (2, 2), activation='relu'),
         keras.layers.AvgPool2D((2, 2)),
-
-        keras.layers.Conv2D(16, (2, 2), activation='relu'),
-        keras.layers.AvgPool2D((2, 2)),
-
+        
         keras.layers.Conv2D(32, (2, 2), activation='relu'),
+        keras.layers.AvgPool2D((2, 2)),
 
         # Fuses 3 channels in one
         #MatrixToImageLayer(),
         #keras.layers.Conv2D(1, (1, 1), activation='relu')
 
-        keras.layers.Flatten()
+        keras.layers.Flatten(),
     ],
     name="Compression")
-
-    #print(compression_layer(input).layer[-1].output_shape)
     
+
+    # Inicial, segundo, maxPool3 y 1 2d, 2 capas (15)
+    ###################### Attention layer ######################
+
+    def attention_layer(input):
+
+        #input1 = keras.layers.Dense(64, activation='tanh')(input)
+
+        internal_compressed_input = keras.backend.expand_dims(input, axis=-1)
+
+        attention_layer_internal = keras.layers.MultiHeadAttention(num_heads=16, key_dim=4)
+        #attention_layer_internal = keras.layers.AdditiveAttention(use_scale=True)
+
+        #internal_attention = attention_layer_internal([internal_compressed_input, 
+        #                                    internal_compressed_input])
+        
+        internal_attention = attention_layer_internal(internal_compressed_input,
+                                                        internal_compressed_input)
+
+        return keras.backend.squeeze(internal_attention, axis=-1)
+
+
+    ###################### Memory layer ######################
+
     lst_memory_layer = keras.models.Sequential([
 
         ImageBuffer(buffer_size=conf.n_timesteps, name="Memory_buffer"),
@@ -265,8 +290,13 @@ def create_model_buffered_XXS(shape, nOutputs):
     ],
     name="LST_memory")
 
+
+    ###################### Output layer ######################
+
     output_layer = keras.models.Sequential([
-        keras.layers.Dense(32, activation='tanh'),
+        
+        #keras.layers.Dense(64, activation='tanh'),
+        #keras.layers.Dense(32, activation='tanh'),
         keras.layers.Dense(16, activation='tanh'),
 
         #   Output layer
@@ -278,17 +308,20 @@ def create_model_buffered_XXS(shape, nOutputs):
     ############## Model ##############
 
     internal_compressed_input = compression_layer(input)
-    internal_lst_memory = lst_memory_layer(internal_compressed_input)
-    output = output_layer(internal_lst_memory)
+    #internal_attention = attention_layer(internal_compressed_input)
+    #internal_lst_memory = lst_memory_layer(internal_compressed_input)
+
+    #classifier_input = keras.layers.concatenate([internal_compressed_input, internal_lst_memory])
+    output = output_layer(internal_compressed_input)
 
     model = keras.Model(input, output)
 
     print(model.summary())
 
     model.compile(optimizer='nadam',
-                #loss= model_exec.ChangeBinaryCrossentropy(),
+                loss= model_exec.ChangeBinaryCrossentropy(),
                 #metrics=[model_exec.focal_loss()]
-                loss="binary_crossentropy",
+                #loss="binary_crossentropy",
                 metrics=["binary_crossentropy", tf.keras.metrics.Recall(thresholds=conf.threshold_output)])
 
     return model

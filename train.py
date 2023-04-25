@@ -58,7 +58,7 @@ PCA_model = None
 
 if id != None:
     model = keras.models.load_model("trained_models/modelos_"+nombre+"/modelo_"+id+".h5", 
-                                    custom_objects={'loss': model_exec.focal_loss(),
+                                    custom_objects={'loss': model_exec.ChangeBinaryCrossentropy(),
                                                     'ImageBuffer': models.ImageBuffer})
     model_list = [model]
 else:
@@ -74,7 +74,7 @@ options_list = [
         scale = conf.scale,
         epoch = 150,
         generator_batch_size = 1024,
-        batch_size = 32,
+        batch_size = 128,
         validation_split = 0.1)
 ]
 

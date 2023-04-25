@@ -14,6 +14,10 @@ import os
 
 nombre = sys.argv[1]
 
+if (len(sys.argv) < 3):
+    escribir_logs = True
+else:
+    escribir_logs = bool(sys.argv[2] == "1")
 
 if not os.path.exists("datasets/"+nombre+"/logs"):
     os.makedirs("datasets/"+nombre+"/logs")
@@ -64,7 +68,8 @@ polling = polling/1000      # Calcula el tiempo de refresco en segundos
 f = open(logFile, "w+")
 
 print("Recording\n")
-sys.stdout = f
+if (escribir_logs):
+    sys.stdout = f
 
 
 try:
@@ -73,8 +78,9 @@ try:
 
         print(data_capture.getInput(joy))
         
-        img = data_capture.getScreen()
-        outImg.write(img)
+        if escribir_logs:
+            img = data_capture.getScreen()
+            outImg.write(img)
         
         end_time = time.time()
 

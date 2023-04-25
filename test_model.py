@@ -11,7 +11,6 @@ import model_functions.model_definitions as models
 import config as conf
 import sys
 import time
-import cupy as cp
 #from skcuda.linalg import PCA
 from sklearn.decomposition import PCA
 import pickle as pk
@@ -67,7 +66,7 @@ pca = None
 ## ----------------- Evaluation ----------------- ##
 
 ruta_modelo = "trained_models/modelos_"+nombre+"/modelo_"+sys.argv[2]+".h5"
-model = keras.models.load_model(ruta_modelo, custom_objects={'loss': model_exec.focal_loss(),
+model = keras.models.load_model(ruta_modelo, custom_objects={'loss': model_exec.ChangeBinaryCrossentropy(),
                                                              'ImageBuffer': models.ImageBuffer})
 
 #print(modelFunc.porcentaje_acierto_secuencia(Xgenerated, Ygenerated, model))

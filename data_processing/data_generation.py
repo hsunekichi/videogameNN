@@ -25,11 +25,11 @@ def load_all_frames(video_reg_exp, scale = conf.scale, pca = None):
         files.sort()
 
         # Loads all the frames from all the videos
-        print("\nLoading frames from ", files[0], "\n")
+        print("Loading frames from ", files[0])
         frames = load_one_video_frames(files[0], scale, pca = pca)
         
         for file in files[1:]:
-            print("\nLoading frames from ", file, "\n")
+            print("Loading frames from ", file)
             new_frames = load_one_video_frames(file, scale, pca = pca)
             frames = np.append(frames, new_frames, axis=0)
     
@@ -47,11 +47,11 @@ def load_all_inputs(input_reg_exp):
         files.sort()
     
         # Loads all the frames from all the videos
-        print("\nLoading inputs from ", files[0], "\n")
+        print("Loading inputs from ", files[0])
         inputs = load_one_file_inputs(files[0])
 
         for file in files[1:]:
-            print("\nLoading inputs from ", file, "\n")
+            print("Loading inputs from ", file)
             inputs = np.append(inputs, load_one_file_inputs(file), axis=0)
 
         # Removes the first dimension of the array
@@ -90,6 +90,8 @@ def load_real_frames(vidName):
         sys.stdout.write('\r')
         sys.stdout.write(f'Loading: [{int(progress):3d}%] {"#"*int(progress/2)}{"-"*int(50-progress/2)}')
         sys.stdout.flush()
+        
+    print()
 
     return image_array
 
@@ -126,6 +128,8 @@ def load_one_video_frames(vidName, scale = conf.scale, pca = None):
         sys.stdout.write('\r')
         sys.stdout.write(f'Loading: [{int(progress):3d}%] {"#"*int(progress/2)}{"-"*int(50-progress/2)}')
         sys.stdout.flush()
+        
+    print()
 
     bw_array = image_preproc.reduce_frames(image_array, pca)
 
@@ -149,9 +153,9 @@ def load_one_file_inputs(path):
 
             # Add the parsed data to the list
             data.append(processed_line)
-    
+
     # Convert the list to a numpy.ndarray
-    data = np.array(data)
+    data = np.array(data, dtype=np.float32)
     
     return data[1:]
 

@@ -4,8 +4,8 @@ import numpy as np
 
 
 def discretize_line_input(line):    
-    processed_line = [float]*(len(line)+conf.n_bidirectional_axis)
-
+    processed_line = [np.uint8]*(len(line)+conf.n_bidirectional_axis)
+    
     i_output = 0
     for i_input in range(len(line)):     # Convert the data to binary
 
@@ -36,7 +36,7 @@ def discretize_line_input(line):
 def discretize_inputs(input_lines):
 
     numFloats = len(input_lines)*len(input_lines[0])
-    processed_lines = [float]*numFloats
+    processed_lines = [np.uint8]*numFloats
 
     for line in input_lines:
         processed_lines.append(discretize_line_input(line))
