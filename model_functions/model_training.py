@@ -27,7 +27,7 @@ def train_one_video(Xtr, ytr, model, options: model_def.training_options):
                 callbacks=[callback], batch_size=options.batch_size, validation_split=0.1)     #, validation_data=val_generator)
 
 # Entrena al modelo con una colección completa de vídeos
-def train_model(vid_path, input_path, test_vid_path, test_log_path, crear_modelo, options: model_def.training_options):
+def train_model(vid_path, input_path, test_vid_path, test_log_path, crear_modelo, options: model_def.training_options, vision_model=None, memory_model=None):
 
     # Gets all the files that match the regular expression
     videos = glob.glob(vid_path)
@@ -63,18 +63,30 @@ def train_model(vid_path, input_path, test_vid_path, test_log_path, crear_modelo
     Xtr = data_gen.load_all_frames(vid_path, scale=options.scale, pca=options.PCA_model)
     ytr = data_gen.load_all_inputs(input_path)
 
+    return_submodels = False
+
     if inspect.isfunction(crear_modelo):
         # Caso base, crea el modelo
         print("Creando modelo")
-        model = crear_modelo(np.shape(Xtr[0]), conf.n_outputs)
+        if return_submodels:
+            model, vision_model, memory_model, decision_model, output_model = crear_modelo(np.shape(Xtr[0]), conf.n_outputs, return_submodels, pretrained_vision_model=vision_model, pretrained_memory_model=memory_model)
+        else:
+            model = crear_modelo(np.shape(Xtr[0]), conf.n_outputs, return_submodels, pretrained_vision_model=vision_model, pretrained_memory_model=memory_model)
     else:
         # El modelo ya existe
         model = crear_modelo
+        vision_model=None 
+        memory_model=None 
+        decision_model=None 
+        output_model=None
 
 
     train_one_video(Xtr, ytr, model, options) 
 
-    return model#, Xtest_window, ytest_window
+    if return_submodels:
+        return model, vision_model, memory_model, decision_model, output_model
+    else:
+        return model
 
 
 
@@ -142,6 +154,7 @@ def train_autoencoder(vid_path):
 
     callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
+    print(np.shape(Xtr))
 
     model.fit(Xtr, Xtr, epochs=100, batch_size=32, 
                 callbacks=[callback], shuffle=True, validation_split = 0.1)
@@ -170,13 +183,19 @@ def create_autoencoder_model(img_shape, side):
     encoder = model_def.encoder_xl(img_shape, side)
     decoder = model_def.decoder_xl(img_shape, side)
 
+    print("Encoder: ", np.shape(encoder.output))
+
     img = keras.layers.Input(img_shape)
     latent_vector = encoder(img)
     output = decoder(latent_vector)
 
+    print("Decoder: ", np.shape(output))
+
     model = keras.models.Model(inputs = img, outputs = output)
     #model.compile("nadam", loss = "mean_absolute_error")
     model.compile("nadam", loss = "binary_crossentropy")
+
+    print(model.summary())
 
 
     return model

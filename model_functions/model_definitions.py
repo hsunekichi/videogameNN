@@ -76,6 +76,28 @@ class KMeansClustering(keras.layers.Layer):
 
 
 
+class show_layer(keras.layers.Layer):
+        def __init__(self, **kwargs):
+            super(show_layer, self).__init__(**kwargs)
+        
+        def build(self, input_shape):
+            super(show_layer, self).build(input_shape)
+            
+        def call(self, inputs):
+            print(tf.executing_eagerly())
+
+            print(np.shape(inputs))
+            
+            image = inputs[0, :, :, 0]
+            np_image = image.numpy()
+            
+            cv2.imshow("first_layer", np_image)
+            cv2.waitKey(0)
+
+            return inputs
+        
+
+
 class CoordinateExpansion(keras.layers.Layer):
     def __init__(self, **kwargs):
         super(CoordinateExpansion, self).__init__(**kwargs)
@@ -212,17 +234,15 @@ class ImageBuffer(keras.layers.Layer):
 ##########################################################
 
 
-def create_model_buffered_XXS(shape, nOutputs):
+def create_model_buffered(shape, nOutputs, return_submodels = False, pretrained_vision_model=None, pretrained_memory_model=None):
 
     #tf.keras.mixed_precision.set_global_policy('mixed_float16')    
 
-    ############## Model layers ##############
-    input = keras.layers.Input(shape=shape)     #, dtype='float16')
-
+    ############## Model layers ##############    
 
     ###################### Compression layer ######################
         
-    compression_layer = keras.models.Sequential([  
+    vision_model = keras.models.Sequential([  
 
         #CoordinateExpansion(),  # Adds two coordinate channels (i, j)
 
@@ -231,7 +251,7 @@ def create_model_buffered_XXS(shape, nOutputs):
         #keras.layers.Reshape((input.shape[1], input.shape[2], 3, 1)),
 
         #   Convolutional layers
-        #keras.layers.Conv2D(8, (3, 3), activation='relu'),
+        keras.layers.Conv2D(8, (3, 3), strides=2, activation='relu'),
         keras.layers.MaxPool2D((3, 3)),
 
         keras.layers.Conv2D(8, (3, 3), activation='relu'),
@@ -249,8 +269,7 @@ def create_model_buffered_XXS(shape, nOutputs):
 
         keras.layers.Flatten(),
     ],
-    name="Compression")
-    
+    name="vision_model")
 
     # Inicial, segundo, maxPool3 y 1 2d, 2 capas (15)
     ###################### Attention layer ######################
@@ -273,63 +292,67 @@ def create_model_buffered_XXS(shape, nOutputs):
         return keras.backend.squeeze(internal_attention, axis=-1)
 
 
-    class show_layer(keras.layers.Layer):
-        def __init__(self, **kwargs):
-            super(show_layer, self).__init__(**kwargs)
-        
-        def build(self, input_shape):
-            super(show_layer, self).build(input_shape)
-            
-        def call(self, inputs):
-            print(np.shape(inputs))
-            image = tf.make_ndarray(inputs[0, :, :, 0])
-            cv2.imshow("first_layer", image)
-            cv2.waitKey(0)
-
-            return inputs
+    
 
 
     ###################### Memory layer ######################
 
-    lst_memory_layer = keras.models.Sequential([
+    memory_model = keras.models.Sequential([
 
         ImageBuffer(buffer_size=conf.n_timesteps, name="Memory_buffer"),
         keras.layers.LSTM(16, activation='tanh'),
         
         #keras.layers.Dropout(0.1),
     ],
-    name="LST_memory")
+    name="memory_model")
 
 
     ###################### Output layer ######################
 
-    output_layer = keras.models.Sequential([
-        
+    decision_model = keras.models.Sequential([
+
         #keras.layers.Dense(64, activation='tanh'),
         keras.layers.Dense(32, activation='tanh'),
         keras.layers.Dense(16, activation='tanh'),
+    ],
+    name="decision_model")
 
+
+    output_model = keras.models.Sequential([
         #   Output layer
         keras.layers.Dense(nOutputs, activation='sigmoid')
     ],
-    name="Dense_classifier")
+    name="output_model")
 
 
     ############## Model ##############
 
-    first_layer = keras.layers.Conv2D(8, (3, 3), activation='relu')(input)
-    showed_layer = show_layer()(first_layer)
+    input_data = keras.layers.Input(shape=shape)
+
+    # Predict using the vision model
+    if pretrained_vision_model is None:
+        vision_output = vision_model(input_data)
+    else:
+        vision_output = pretrained_vision_model(input_data)
+        vision_model = pretrained_vision_model
+
+    # Predict using the memory model
+    if pretrained_memory_model is None:
+        memory_output = memory_model(vision_output)
+    else:
+        memory_output = pretrained_memory_model(vision_output)
+        memory_model = pretrained_memory_model
+
+    vision_memory_data = keras.layers.concatenate([vision_output, memory_output])
+
+    # Predict using the decision model
+    decision_output = decision_model(vision_memory_data)
+
+    # Predict using the output model
+    final_output = output_model(decision_output)
 
 
-    internal_compressed_input = compression_layer(showed_layer)
-    internal_attention = attention_layer(internal_compressed_input)
-    #internal_lst_memory = lst_memory_layer(internal_compressed_input)
-
-    #classifier_input = keras.layers.concatenate([internal_compressed_input, internal_lst_memory])
-    output = output_layer(internal_attention)
-
-    model = keras.Model(input, output)
-
+    model = keras.Model(input_data, final_output)
     print(model.summary())
 
     model.compile(optimizer='nadam',
@@ -338,53 +361,75 @@ def create_model_buffered_XXS(shape, nOutputs):
                 #loss="binary_crossentropy",
                 metrics=["binary_crossentropy", tf.keras.metrics.Recall(thresholds=conf.threshold_output)])
 
+    if return_submodels:
+        return model, vision_model, memory_model, decision_model, output_model
+    else:
+        return model
+    
+
+def create_hybrid(shape, nOutputs, vision_model, memory_model, decision_model1, decision_model2):
+
+    ############## Model ##############
+
+    output_model = keras.models.Sequential([
+        #   Output layer
+        keras.layers.Dense(nOutputs, activation='sigmoid')
+    ],
+    name="output_model")
+        
+
+    input_data = keras.layers.Input(shape=shape)
+
+    # Predict using the vision model
+    vision_output = vision_model(input_data)
+
+    # Predict using the memory model
+    memory_output = memory_model(vision_output)
+
+    vision_memory_data = keras.layers.concatenate([vision_output, memory_output])
+
+    # Predict using the decision model
+    decision_output1 = decision_model1(vision_memory_data)
+    decision_output2 = decision_model2(vision_memory_data)
+
+    decision_output = keras.layers.concatenate([decision_output1, decision_output2])
+
+    # Predict using the output model
+    final_output = output_model(decision_output)
+
+
+    model = keras.Model(input_data, final_output)
+    print(model.summary())
+
+    model.compile(optimizer='nadam',
+                loss= model_exec.ChangeBinaryCrossentropy(),
+                #metrics=[model_exec.focal_loss()]
+                #loss="binary_crossentropy",
+                metrics=["binary_crossentropy", tf.keras.metrics.Recall(thresholds=conf.threshold_output)])
+
+    #if return_submodels:
+    #    return model, vision_model, memory_model, decision_model, output_model
+    #else:
     return model
+
+
 
 
 ## ----------------- Model definition ----------------- ##
 
 def encoder_xl(shape, output_image_side_size):
-    print("Shape: ", shape)
-    print("output size: ", output_image_side_size)
     encoder = keras.models.Sequential([
         keras.layers.InputLayer(input_shape = shape),
 
-        #keras.layers.Conv2D(64, (3, 3), activation='relu'),
+        keras.layers.Conv2D(8, (3, 3), activation="relu", strides=2, padding="same"),
+        keras.layers.Conv2D(8, (3, 3), activation="relu", strides=2, padding="same"),
 
-        #keras.layers.Conv2D(32, (3, 3), activation='relu'),
-        #keras.layers.MaxPool2D((2, 2)),
+        keras.layers.Conv2D(16, (2, 2), activation="relu", strides=2, padding="same"),
 
-        #keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        keras.layers.Conv2D(16, (2, 2), activation="relu", strides=2, padding="same"),
 
-        keras.layers.Flatten(),
-        keras.layers.Dense(512),       
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(256),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(128),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(64),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(output_image_side_size*output_image_side_size),
-        keras.layers.Reshape((output_image_side_size, output_image_side_size, 1))
-    ])
-
-    return encoder
-
-
-def encoder_xs(shape, output_image_side_size):
-    print("Shape: ", shape)
-    print("output size: ", output_image_side_size)
-    encoder = keras.models.Sequential([
-        keras.layers.InputLayer(input_shape = shape),
-
-        keras.layers.Flatten(),
-        keras.layers.Dense(output_image_side_size*output_image_side_size),
-        keras.layers.Reshape((output_image_side_size, output_image_side_size, 1))
+        #keras.layers.Dense(output_image_side_size*output_image_side_size),
+        #keras.layers.Reshape((output_image_side_size, output_image_side_size, 1))
     ])
 
     return encoder
@@ -393,33 +438,18 @@ def encoder_xs(shape, output_image_side_size):
 
 def decoder_xl(shape, output_image_side_size):
     decoder = keras.models.Sequential([
-        keras.layers.Flatten(input_shape = (output_image_side_size, output_image_side_size, 1)),
-        keras.layers.Dense(64),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(128),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(256),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(512),
-        keras.layers.LeakyReLU(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(shape[0]*shape[1]*shape[2]),
-        keras.layers.Activation("sigmoid"),
-        keras.layers.Reshape(shape)
-    ])
+        #keras.layers.Flatten(input_shape = (output_image_side_size, output_image_side_size, 1)),
+        keras.layers.Conv2DTranspose(16, (2, 2), strides=2, activation="relu", padding="same"),
+        
+        keras.layers.Conv2DTranspose(16, (2, 2), strides=2, activation="relu", padding="same"),
+        keras.layers.Conv2DTranspose(8, (3, 3), strides=2, activation="relu", padding="same"),
+        keras.layers.Conv2DTranspose(8, (3, 3), strides=2, activation="relu", padding="same"),
 
-    return decoder
+        keras.layers.Conv2D(1, (1, 1), activation="sigmoid", padding="same"),
 
 
-
-def decoder_xs(shape, output_image_side_size):
-    decoder = keras.models.Sequential([
-        keras.layers.Flatten(input_shape = (output_image_side_size, output_image_side_size, 1)),
-        keras.layers.Dense(shape[0]*shape[1]*shape[2]),
-        keras.layers.Activation("sigmoid"),
+        #keras.layers.Flatten(),
+        #keras.layers.Dense(shape[0]*shape[1], activation="sigmoid"),
         keras.layers.Reshape(shape)
     ])
 

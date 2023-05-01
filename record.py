@@ -10,14 +10,16 @@ import config as conf
 import glob 
 import os
 
-
-
+if len(sys.argv) < 2:
+    print("Invoke as python3 record.py <dataset_name> [<show_inputs>]")
+    exit(1)
+    
 nombre = sys.argv[1]
 
 if (len(sys.argv) < 3):
-    escribir_logs = True
+    show_logs = False
 else:
-    escribir_logs = bool(sys.argv[2] == "1")
+    show_logs = bool(sys.argv[2] == "1")
 
 if not os.path.exists("datasets/"+nombre+"/logs"):
     os.makedirs("datasets/"+nombre+"/logs")
@@ -68,7 +70,7 @@ polling = polling/1000      # Calcula el tiempo de refresco en segundos
 f = open(logFile, "w+")
 
 print("Recording\n")
-if (escribir_logs):
+if not show_logs:
     sys.stdout = f
 
 
@@ -78,9 +80,8 @@ try:
 
         print(data_capture.getInput(joy))
         
-        if escribir_logs:
-            img = data_capture.getScreen()
-            outImg.write(img)
+        img = data_capture.getScreen()
+        outImg.write(img)
         
         end_time = time.time()
 

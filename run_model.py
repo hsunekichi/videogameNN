@@ -36,6 +36,9 @@ def send_input(key_states):
         else:
             autogui.keyUp(key)
 
+if (len(sys.argv) < 3):
+    print("Usage: python run_model.py <dataset_name> <model_id> [<execute_inputs>]")
+    exit()
 
 name = sys.argv[1]
 id = sys.argv[2]
@@ -45,7 +48,7 @@ if (len(sys.argv) < 4):
 else:
     execute_inputs = (sys.argv[3] == "1")
 
-model = keras.models.load_model("trained_models/modelos_"+name+"/modelo_"+id+".h5",
+model = keras.models.load_model("trained_models/modelos_"+name+"/modelo_"+id+"_completo.h5",
                                 custom_objects={'loss': model_exec.ChangeBinaryCrossentropy(),
                                                 'ImageBuffer': models.ImageBuffer})
 #pca = pk.load(open("trained_models/modelos_"+name+"/pca.pkl",'rb'))

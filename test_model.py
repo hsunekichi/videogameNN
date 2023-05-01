@@ -65,7 +65,7 @@ pca = None
 
 ## ----------------- Evaluation ----------------- ##
 
-ruta_modelo = "trained_models/modelos_"+nombre+"/modelo_"+sys.argv[2]+".h5"
+ruta_modelo = "trained_models/modelos_"+nombre+"/modelo_"+sys.argv[2]+"_completo.h5"
 model = keras.models.load_model(ruta_modelo, custom_objects={'loss': model_exec.ChangeBinaryCrossentropy(),
                                                              'ImageBuffer': models.ImageBuffer})
 
