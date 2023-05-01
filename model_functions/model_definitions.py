@@ -5,6 +5,7 @@ import model_functions.model_execution as model_exec
 from sklearn.decomposition import PCA   
 from dataclasses import dataclass
 import numpy as np
+import cv2
 
 
 #########################################################
@@ -28,6 +29,52 @@ class training_options:
 #########################################################
 ## ------------------ Custom layers ------------------ ##
 #########################################################
+
+
+
+class KMeansClustering(keras.layers.Layer):
+    def __init__(self, num_clusters, **kwargs):
+        super(KMeansClustering, self).__init__(**kwargs)
+        self.num_clusters = num_clusters
+    
+    def build(self, input_shape):
+        self.centroids = self.add_weight(
+            name="centroids",
+            shape=(self.num_clusters, input_shape[-1]),
+            initializer="glorot_uniform",
+            trainable=True,
+        )
+        super(KMeansClustering, self).build(input_shape)
+    
+    def call(self, inputs):
+        # Flatten the input tensor
+        inputs_flat = tf.reshape(inputs, (-1, inputs.shape[-1]))
+        
+        # Compute the distances between the inputs and centroids
+        distances = tf.reduce_sum(tf.square(tf.expand_dims(inputs_flat, axis=1) - self.centroids), axis=-1)
+        
+        # Assign each input to the nearest centroid
+        cluster_indices = tf.argmin(distances, axis=-1)
+        clusters = tf.one_hot(cluster_indices, depth=self.num_clusters)
+        
+        # Update the centroids based on the assigned inputs
+        counts = tf.reduce_sum(clusters, axis=0)
+        new_centroids = tf.reduce_sum(tf.expand_dims(inputs_flat, axis=1) * tf.expand_dims(clusters, axis=-1), axis=0) / tf.expand_dims(counts, axis=-1)
+        
+        # Update the centroids using exponential moving average
+        self.add_update(tf.compat.v1.assign(self.centroids, 0.9 * self.centroids + 0.1 * new_centroids))
+        
+        # Reshape the clusters tensor to match the shape of the input tensor
+        clusters = tf.reshape(clusters, tf.shape(inputs)[:-1] + (self.num_clusters,))
+        
+        return clusters
+    
+    def get_config(self):
+        config = super(KMeansClustering, self).get_config()
+        config.update({"num_clusters": self.num_clusters})
+        return config
+
+
 
 class CoordinateExpansion(keras.layers.Layer):
     def __init__(self, **kwargs):
@@ -164,59 +211,6 @@ class ImageBuffer(keras.layers.Layer):
 ## ----------------- Model definition ----------------- ##
 ##########################################################
 
-def create_model_temporal_XXS(shape, nOutputs):
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
-    model = keras.models.Sequential([
-        
-        # Input layer
-        #keras.layers.Reshape((img_heigth, img_width, 1), input_shape=(np.shape(dataset))),
-        keras.layers.InputLayer(input_shape = shape),
-
-        #   Convolutional layers
-        keras.layers.TimeDistributed(
-            keras.layers.Conv2D(32, (3, 3), activation='relu')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.MaxPool2D((3, 3))),
-
-
-        keras.layers.TimeDistributed(    
-            keras.layers.Conv2D(16, (2, 2), activation='relu')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.AvgPool2D((3, 3))),
-
-        keras.layers.TimeDistributed(
-            keras.layers.Flatten()),
-
-        keras.layers.LSTM(32, activation='tanh'),
-        
-        #keras.layers.Dropout(0.1),
-
-        #   Dense layers
-        # Flatten the 2D feature maps into a 1D feature vector
-        #keras.layers.TimeDistributed(
-        #    keras.layers.Flatten()),
-
-
-        keras.layers.Dense(16, activation='tanh'),
-
-        #   Output layer
-        keras.layers.Dense(nOutputs, activation='sigmoid')
-    ])
-
-    print(model.summary())
-
-    model.compile(optimizer='nadam',
-                loss= model_exec.focal_loss(),
-                #metrics=[model_exec.focal_loss()]
-                #loss="binary_crossentropy",
-                metrics=["binary_crossentropy", tf.keras.metrics.Recall(thresholds=conf.threshold_output)])
-
-    return model
-
-
 
 def create_model_buffered_XXS(shape, nOutputs):
 
@@ -227,7 +221,7 @@ def create_model_buffered_XXS(shape, nOutputs):
 
 
     ###################### Compression layer ######################
-
+        
     compression_layer = keras.models.Sequential([  
 
         #CoordinateExpansion(),  # Adds two coordinate channels (i, j)
@@ -237,7 +231,7 @@ def create_model_buffered_XXS(shape, nOutputs):
         #keras.layers.Reshape((input.shape[1], input.shape[2], 3, 1)),
 
         #   Convolutional layers
-        keras.layers.Conv2D(8, (3, 3), activation='relu'),
+        #keras.layers.Conv2D(8, (3, 3), activation='relu'),
         keras.layers.MaxPool2D((3, 3)),
 
         keras.layers.Conv2D(8, (3, 3), activation='relu'),
@@ -267,7 +261,7 @@ def create_model_buffered_XXS(shape, nOutputs):
 
         internal_compressed_input = keras.backend.expand_dims(input, axis=-1)
 
-        attention_layer_internal = keras.layers.MultiHeadAttention(num_heads=16, key_dim=4)
+        attention_layer_internal = keras.layers.MultiHeadAttention(num_heads=16, key_dim=16)
         #attention_layer_internal = keras.layers.AdditiveAttention(use_scale=True)
 
         #internal_attention = attention_layer_internal([internal_compressed_input, 
@@ -277,6 +271,22 @@ def create_model_buffered_XXS(shape, nOutputs):
                                                         internal_compressed_input)
 
         return keras.backend.squeeze(internal_attention, axis=-1)
+
+
+    class show_layer(keras.layers.Layer):
+        def __init__(self, **kwargs):
+            super(show_layer, self).__init__(**kwargs)
+        
+        def build(self, input_shape):
+            super(show_layer, self).build(input_shape)
+            
+        def call(self, inputs):
+            print(np.shape(inputs))
+            image = tf.make_ndarray(inputs[0, :, :, 0])
+            cv2.imshow("first_layer", image)
+            cv2.waitKey(0)
+
+            return inputs
 
 
     ###################### Memory layer ######################
@@ -296,7 +306,7 @@ def create_model_buffered_XXS(shape, nOutputs):
     output_layer = keras.models.Sequential([
         
         #keras.layers.Dense(64, activation='tanh'),
-        #keras.layers.Dense(32, activation='tanh'),
+        keras.layers.Dense(32, activation='tanh'),
         keras.layers.Dense(16, activation='tanh'),
 
         #   Output layer
@@ -307,12 +317,16 @@ def create_model_buffered_XXS(shape, nOutputs):
 
     ############## Model ##############
 
-    internal_compressed_input = compression_layer(input)
-    #internal_attention = attention_layer(internal_compressed_input)
+    first_layer = keras.layers.Conv2D(8, (3, 3), activation='relu')(input)
+    showed_layer = show_layer()(first_layer)
+
+
+    internal_compressed_input = compression_layer(showed_layer)
+    internal_attention = attention_layer(internal_compressed_input)
     #internal_lst_memory = lst_memory_layer(internal_compressed_input)
 
     #classifier_input = keras.layers.concatenate([internal_compressed_input, internal_lst_memory])
-    output = output_layer(internal_compressed_input)
+    output = output_layer(internal_attention)
 
     model = keras.Model(input, output)
 
@@ -327,156 +341,7 @@ def create_model_buffered_XXS(shape, nOutputs):
     return model
 
 
-
-def create_model_temporal_XS(shape, nOutputs):
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
-    model = keras.models.Sequential([
-        
-        # Input layer
-        #keras.layers.Reshape((img_heigth, img_width, 1), input_shape=(np.shape(dataset))),
-        keras.layers.InputLayer(input_shape = shape),
-
-         #   Convolutional layers
-        keras.layers.TimeDistributed(
-            keras.layers.Conv2D(32, (3, 3), activation='relu')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.MaxPool2D((3, 3))),
-
-
-        keras.layers.TimeDistributed(    
-            keras.layers.Conv2D(16, (2, 2), activation='relu')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.AvgPool2D((3, 3))),
-
-        keras.layers.TimeDistributed(
-            keras.layers.Flatten()),
-
-
-        keras.layers.TimeDistributed(
-            keras.layers.Dense(32, activation='tanh')),
-
-        #keras.layers.LSTM(32, activation='tanh', return_sequences = True),
-        keras.layers.LSTM(16, activation='tanh'),
-
-        keras.layers.Dropout(0.05),
-
-        #keras.layers.Dense(32, activation='tanh'),
-        keras.layers.Dense(16, activation='tanh'),
-
-        #   Output layer
-        keras.layers.Dense(nOutputs, activation='sigmoid')
-    ])
-
-    print(model.summary())
-
-    model.compile(optimizer='adam',
-                loss= model_exec.focal_loss(),
-                metrics=[model_exec.focal_loss()])
-
-    return model
-
-
-
-def create_model_temporal_XL(shape, nOutputs):
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
-    print(shape)
-    model = keras.models.Sequential([
-        
-        # Input layer
-        #keras.layers.Reshape((img_heigth, img_width, 1), input_shape=(np.shape(dataset))),
-        keras.layers.InputLayer(input_shape = shape, dtype = 'float16'),
-
-        #   Convolutional layers
-        keras.layers.TimeDistributed(
-            keras.layers.Conv2D(64, (3, 3), activation='relu', dtype = 'float16')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.MaxPooling2D((3, 3), dtype = 'float16')),
-
-
-        keras.layers.TimeDistributed(    
-            keras.layers.Conv2D(64, (2, 2), activation='relu')),
-
-        keras.layers.TimeDistributed(    
-            keras.layers.Conv2D(16, (2, 2), activation='relu')),
-
-        keras.layers.TimeDistributed(
-            keras.layers.Flatten()),
-
-        keras.layers.LSTM(64, activation='tanh'),
-        
-        keras.layers.Dropout(0.1),
-
-        #   Dense layers
-        # Flatten the 2D feature maps into a 1D feature vector
-        #keras.layers.TimeDistributed(
-        #    keras.layers.Flatten()),
-
-
-        keras.layers.Dense(32, activation='tanh'),
-        keras.layers.Dense(32, activation='tanh'),
-
-        keras.layers.Dense(16, activation='tanh'),
-
-        #   Output layer
-        keras.layers.Dense(nOutputs, activation='sigmoid', dtype = 'float16')
-    ])
-
-    print(model.summary())
-
-    model.compile(optimizer='adam',
-                loss= model_exec.focal_loss(),
-                metrics=[model_exec.focal_loss()])
-
-    return model
-
 ## ----------------- Model definition ----------------- ##
-def create_model_static(shape, nOutputs):
-    tf.keras.mixed_precision.set_global_policy('mixed_float16')
-
-    model = keras.models.Sequential([
-        
-        # Input layer
-        #keras.layers.Reshape((img_heigth, img_width, 1), input_shape=(np.shape(dataset))),
-        keras.layers.InputLayer(input_shape = shape),
-
-        #   Convolutional layers
-        keras.layers.Conv2D(64, (3, 3), activation='relu'),
-        keras.layers.MaxPooling2D((2, 2)),
-
-        keras.layers.Conv2D(64, (3, 3), activation='relu'),
-
-        keras.layers.Conv2D(32, (3, 3), activation='relu'),
-        keras.layers.AvgPool2D((2, 2)),
-
-        keras.layers.Conv2D(32, (3, 3), activation='relu'),
-        keras.layers.AvgPool2D((2, 2)),
-
-        keras.layers.Flatten(),
-        #   Dense layers
-        keras.layers.Dense(64, activation='tanh'),
-
-        keras.layers.Dense(32, activation='tanh'),
-        keras.layers.Dropout(0.2),
-
-        keras.layers.Dense(16, activation='linear'),
-
-        #   Output layer
-        keras.layers.Dense(nOutputs, activation='sigmoid')
-    ])
-
-    #print(model.summary())
-
-
-    model.compile(optimizer='adam',
-                loss='binary_crossentropy',
-                metrics=['binary_crossentropy'])
-
-    return model
-
 
 def encoder_xl(shape, output_image_side_size):
     print("Shape: ", shape)
